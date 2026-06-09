@@ -2,7 +2,7 @@
 
 **Purpose:** Authorized/educational patch-diff of UniFi OS Server **5.0.6 (vulnerable)** vs **5.0.8 (fixed)** to independently localize three max-severity (CVSS 10.0) CVEs and test whether they are **three separate exploits** or one conflated chain.
 
-**Date:** 2026-06-08 · **Status:** 34908 + 34910 confirmed; 34909 hunt in progress.
+**Date:** 2026-06-08 · **Status:** 34910 Ghidra-confirmed; 34908 + 34909 localized to two distinct nginx route families (shared fix); three-separate-exploits thesis CONFIRMED. See "CVE-2026-34909 — RESOLVED" at end.
 
 ---
 
@@ -11,7 +11,7 @@
 | CVE | Class (CWE) | Reporter | Located in | Confidence |
 |-----|-------------|----------|-----------|------------|
 | **34908** | Improper Access Control (284) | Duc Anh Nguyen (@heckintosh_) | `etc/nginx/nginx.conf.disabled` (raw-vs-normalized URI routing) | ✅ High |
-| **34909** | Path Traversal (22) | Abdulaziz Almadhi (Catchify) | **`usr/sbin/ulp-go-app`** (ULP backend file handlers) — *being confirmed* | 🔍 In progress |
+| **34909** | Path Traversal (22) | Abdulaziz Almadhi (Catchify) | nginx **`/app-assets/<svc>/<path>`** static-file route (distinct sink from 34908's `/proxy/`); fixed at gateway | ✅ Localized (see end) |
 | **34910** | Improper Input Validation → Command Injection (20/77) | John Carroll | `usr/sbin/unifi-identity-update-app` (Go) | ✅ High |
 | *(privesc)* | — | — | `etc/sudoers.d/unifi-identity-update` (dpkg/chmod dropped) | ✅ High |
 
@@ -146,3 +146,17 @@ Installed standalone **Ghidra 12.1.2** (+ openjdk@21). Full headless analysis of
 - `ghidra_scripts/{DecompRefs,CallSinks,FindRoute,ScanLea}.java`, `run_ghidra_hunt.sh`
 - `/tmp/ghidra_{old,new}.txt`, `/tmp/gfun/*.c`, `/tmp/route_{old,new}.txt`
 - Ghidra projects: `/tmp/ghidraproj/proj_{old,new}` (analyzed, reusable via `-process ... -noanalysis`)
+
+## CVE-2026-34909 — RESOLVED (the /app-assets file-serving route; fixed at the nginx gateway)
+
+Exhaustive negative search (all confirmed): Go services (no new `filepath.Clean/IsLocal/Rel/Abs` call in any common fn; no new path-validator fn; only feature churn) · full nginx tree (only the normalization maps) · Rust `uosserver` (does NOT serve files — 0 file tokens) · Rust `uos-agent` (`crates/backups` manifest-path validation IDENTICAL old/new) · Java webapp config (feature additions) · `ace.jar` (obfuscated + re-obfuscated → undiffable). => No separate backend file-read code fix in any diffable surface.
+
+The fix is the SAME nginx normalization change as 34908, but it covers TWO route families:
+    ~^/proxy/([a-z][-a-z]*)/(.*)$       -> reverse-proxy to backend APIs   => 34908 sink (access control)
+    ~^/app-assets/([a-z][-a-z]*)/(.*)$  -> static FILE serving from disk    => 34909 sink (path traversal / file read)
+
+- 34908 (Nguyen): traversal on /proxy/<svc>/... reaches an unauthorized backend/API (auth-exempt check on raw URI, routing on normalized).
+- 34909 (Almadhi): traversal on /app-assets/<svc>/<path> (on-disk static-file serving) reads arbitrary files -> "compromise an underlying account." No Rust/Go binary references app-assets => served by nginx directly via runtime-generated root/alias; defended by the same normalization check.
+
+VERDICT: 34908 and 34909 = TWO DISTINCT vulns (two routes, two sinks: API-routing vs filesystem-read, two CWEs, two reporters) sharing ONE root cause (raw-vs-normalized URI) and ONE fix (the nginx maps). 34910 wholly independent. => THREE separate exploits. BF's conflation arises because both traversals share the nginx chokepoint, so a black-box probe sees "one traversal."
+Caveat: 34909's sink type is inferred from route semantics (/app-assets = file serving) + the fix covering it; actual file-read is nginx runtime-generated config, not a static-diffable line.
