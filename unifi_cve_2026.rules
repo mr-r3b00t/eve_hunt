@@ -1,0 +1,94 @@
+# =============================================================================
+# UniFi OS Server (SAB-064) — network detection rules for CVE-2026-34908/9/10
+# Suricata 6/7 syntax (Snort 3 compatible with minor buffer-name changes).
+# Tune $HOME_NET / port group to your UniFi OS console (typically tcp 443/8443/443).
+# Local SID range 90000xx — change to fit your ruleset.
+#
+# DETECTION THEORY
+#   * 34908 & 34909 are the SAME root cause (nginx evaluates auth/routing on the
+#     RAW %-encoded URI but resolves the backend on the NORMALIZED URI). The attack
+#     ONLY works when the raw bytes differ from the normalized path — i.e. the
+#     traversal MUST be percent-encoded (..%2f, .%2e, %2e%2e, or double-encoded
+#     %252e/%252f). Plain "../" gets normalized identically by both layers and does
+#     NOT bypass. => The high-fidelity signal is ENCODED dot/slash traversal tokens
+#     in the /proxy/ (34908, API routing) or /app-assets/ (34909, on-disk file read)
+#     route families. Legit traffic to those routes never contains them.
+#   * Match the VERBATIM request line (http.request_line), NOT the normalized
+#     http.uri — the IDS must see the encoded bytes the way nginx's raw check did.
+#   * 34910 is command injection via a package/"runnable" NAME that reached
+#     `/bin/sh -c "...%v..."`; detect shell metacharacters in the ucs update request.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# CVE-2026-34908 — Improper Access Control (auth/routing bypass)
+# Encoded dot-dot traversal in a request targeting the /proxy/ route family.
+# Catches the disclosed probe shape, e.g.:
+#   GET /api/auth/validate-sso/..%2f..%2f..%2fproxy/users/api/v2/ucs/update/latest_package
+#   GET /proxy/access/.%2e/network/...
+# -----------------------------------------------------------------------------
+alert http any any -> $HOME_NET any ( \
+    msg:"CVE-2026-34908 UniFi OS auth/access-control bypass - encoded traversal into /proxy route"; \
+    flow:established,to_server; \
+    http.request_line; \
+    content:"/proxy/"; nocase; \
+    pcre:"/(?:\.\.|%2e%2e|\.%2e|%2e\.|%252e)(?:\/|%2f|%5c|%252f)/i"; \
+    classtype:web-application-attack; \
+    reference:cve,2026-34908; \
+    reference:url,community.ui.com/releases/Security-Advisory-Bulletin-064-064; \
+    metadata:attack_target Server, created_at 2026_06_09; \
+    sid:9000801; rev:1; \
+)
+
+
+# -----------------------------------------------------------------------------
+# CVE-2026-34909 — Path Traversal (arbitrary file read on the underlying system)
+# Same encoded-traversal class, but on the /app-assets/ STATIC FILE route, where
+# it resolves to arbitrary on-disk reads (e.g. .../app-assets/x/..%2f..%2f..%2fetc/...).
+# This is the distinct sink from 34908 (file read vs API routing).
+# -----------------------------------------------------------------------------
+alert http any any -> $HOME_NET any ( \
+    msg:"CVE-2026-34909 UniFi OS path traversal - encoded traversal into /app-assets (arbitrary file read)"; \
+    flow:established,to_server; \
+    http.request_line; \
+    content:"/app-assets/"; nocase; \
+    pcre:"/(?:\.\.|%2e%2e|\.%2e|%2e\.|%252e)(?:\/|%2f|%5c|%252f)/i"; \
+    classtype:web-application-attack; \
+    reference:cve,2026-34909; \
+    reference:url,community.ui.com/releases/Security-Advisory-Bulletin-064-064; \
+    metadata:attack_target Server, created_at 2026_06_09; \
+    sid:9000901; rev:1; \
+)
+
+
+# -----------------------------------------------------------------------------
+# CVE-2026-34910 — Command Injection via package/"runnable" name (ucs update)
+# The name reached `fmt.Sprintf("sudo dpkg -s %v ...")` -> /bin/sh -c. Detect shell
+# metacharacters in requests to the ucs update endpoints. Inspects URI AND body
+# (name may arrive as a query/path token or in a JSON body). Decoded metachars:
+#   ; | & ` $( ${ && ||  and their %-encodings %3B %7C %26 %60 %24%28 %0a (newline).
+# -----------------------------------------------------------------------------
+alert http any any -> $HOME_NET any ( \
+    msg:"CVE-2026-34910 UniFi OS command injection - shell metacharacters in ucs update package name"; \
+    flow:established,to_server; \
+    http.uri; content:"/ucs/update"; nocase; \
+    pcre:"/(?:[;|&`]|\$\(|\$\{|\|\||&&|%3b|%7c|%26|%60|%24%28|%0a|%0d|\bdpkg\b|\bsystemctl\b|\bawk\b|\$\(IFS)/iU"; \
+    classtype:web-application-attack; \
+    reference:cve,2026-34910; \
+    reference:url,community.ui.com/releases/Security-Advisory-Bulletin-064-064; \
+    metadata:attack_target Server, created_at 2026_06_09; \
+    sid:9001001; rev:1; \
+)
+
+# Companion for 34910 when the name is delivered in the POST/PUT body (JSON):
+alert http any any -> $HOME_NET any ( \
+    msg:"CVE-2026-34910 UniFi OS command injection - shell metacharacters in ucs update request body"; \
+    flow:established,to_server; \
+    http.uri; content:"/ucs/update"; nocase; \
+    http.request_body; \
+    pcre:"/(?:[;|&`]|\$\(|\$\{|\|\||&&|\\\\n|%0a|\bdpkg\b|\bsystemctl\b)/i"; \
+    classtype:web-application-attack; \
+    reference:cve,2026-34910; \
+    metadata:created_at 2026_06_09; \
+    sid:9001002; rev:1; \
+)
